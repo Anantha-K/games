@@ -767,6 +767,210 @@ window.addEventListener('resize', () => {
 </body>
 </html>
 
+
+
+
+
+
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Bowling Game</title>
+    <style>
+        body { margin: 0; }
+        canvas { display: block; }
+        #controls {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 10px;
+            border-radius: 5px;
+            font-family: Arial, sans-serif;
+        }
+        #power {
+            width: 200px;
+        }
+    </style>
+</head>
+<body>
+    <div id="controls">
+        Power: <input type="range" id="power" min="0" max="50" value="25"><br>
+        Press SPACE to throw the ball<br>
+        Use LEFT/RIGHT arrows to move
+    </div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cannon.js/0.6.2/cannon.min.js"></script>
+
+    <script>
+        // Initialize Three.js
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        document.body.appendChild(renderer.domElement);
+
+        // Initialize Cannon.js
+        const world = new CANNON.World();
+        world.gravity.set(0, -9.82, 0);
+        world.broadphase = new CANNON.NaiveBroadphase();
+
+        // Materials
+        const groundMaterial = new THREE.MeshPhongMaterial({ color: 0x404040 });
+        const pinMaterial = new THREE.MeshPhongMaterial({ color: 0xffffff });
+        const ballMaterial = new THREE.MeshPhongMaterial({ color: 0xff0000 });
+
+        // Lighting
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+        scene.add(ambientLight);
+
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
+        directionalLight.position.set(0, 20, 10);
+        directionalLight.castShadow = true;
+        scene.add(directionalLight);
+
+        // Ground
+        const groundGeometry = new THREE.BoxGeometry(20, 1, 50);
+        const groundMesh = new THREE.Mesh(groundGeometry, groundMaterial);
+        groundMesh.receiveShadow = true;
+        scene.add(groundMesh);
+
+        const groundShape = new CANNON.Box(new CANNON.Vec3(10, 0.5, 25));
+        const groundBody = new CANNON.Body({ mass: 0, shape: groundShape });
+        world.addBody(groundBody);
+
+        // Bowling ball
+        const ballRadius = 0.5;
+        const ballGeometry = new THREE.SphereGeometry(ballRadius);
+        const ballMesh = new THREE.Mesh(ballGeometry, ballMaterial);
+        ballMesh.castShadow = true;
+        scene.add(ballMesh);
+
+        const ballShape = new CANNON.Sphere(ballRadius);
+        const ballBody = new CANNON.Body({
+            mass: 5,
+            shape: ballShape,
+            position: new CANNON.Vec3(0, 5, 20)
+        });
+        world.addBody(ballBody);
+
+        // Bowling pins
+        const pins = [];
+        const pinBodies = [];
+        const pinPositions = [
+            [0, 0], [-0.8, -1], [0.8, -1], [-1.6, -2], [0, -2], 
+            [1.6, -2], [-2.4, -3], [-0.8, -3], [0.8, -3], [2.4, -3]
+        ];
+
+        const pinGeometry = new THREE.CylinderGeometry(0.2, 0.2, 1, 10);
+        pinPositions.forEach(pos => {
+            const pinMesh = new THREE.Mesh(pinGeometry, pinMaterial);
+            pinMesh.position.set(pos[0], 1.5, pos[1] - 10);
+            pinMesh.castShadow = true;
+            scene.add(pinMesh);
+            pins.push(pinMesh);
+
+            const pinShape = new CANNON.Cylinder(0.2, 0.2, 1, 10);
+            const pinBody = new CANNON.Body({
+                mass: 1,
+                shape: pinShape,
+                position: new CANNON.Vec3(pos[0], 1.5, pos[1] - 10)
+            });
+            world.addBody(pinBody);
+            pinBodies.push(pinBody);
+        });
+
+        // Camera setup
+        camera.position.set(0, 10, 30);
+        camera.lookAt(0, 0, -10);
+
+        // Game state
+        let ballThrown = false;
+        let ballPosition = { x: 0, z: 20 };
+        const powerSlider = document.getElementById('power');
+
+        // Controls
+        document.addEventListener('keydown', (event) => {
+            if (!ballThrown) {
+                switch(event.code) {
+                    case 'ArrowLeft':
+                        ballPosition.x = Math.max(ballPosition.x - 0.5, -5);
+                        break;
+                    case 'ArrowRight':
+                        ballPosition.x = Math.min(ballPosition.x + 0.5, 5);
+                        break;
+                    case 'Space':
+                        throwBall();
+                        break;
+                }
+                ballBody.position.x = ballPosition.x;
+            }
+        });
+
+        function throwBall() {
+            if (!ballThrown) {
+                const power = parseFloat(powerSlider.value);
+                ballBody.velocity.set(0, 0, -power);
+                ballThrown = true;
+            }
+        }
+
+        // Reset game
+        function resetGame() {
+            ballThrown = false;
+            ballBody.position.set(ballPosition.x, 5, 20);
+            ballBody.velocity.set(0, 0, 0);
+            ballBody.angularVelocity.set(0, 0, 0);
+
+            pinPositions.forEach((pos, i) => {
+                pinBodies[i].position.set(pos[0], 1.5, pos[1] - 10);
+                pinBodies[i].velocity.set(0, 0, 0);
+                pinBodies[i].angularVelocity.set(0, 0, 0);
+            });
+        }
+
+        // Animation loop
+        function animate() {
+            requestAnimationFrame(animate);
+
+            world.step(1/60);
+
+            // Update meshes based on physics
+            ballMesh.position.copy(ballBody.position);
+            ballMesh.quaternion.copy(ballBody.quaternion);
+
+            pins.forEach((pin, i) => {
+                pin.position.copy(pinBodies[i].position);
+                pin.quaternion.copy(pinBodies[i].quaternion);
+            });
+
+            // Reset if ball goes too far
+            if (ballBody.position.z < -20) {
+                setTimeout(resetGame, 2000);
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        animate();
+    </script>
+</body>
+</html>
+
+
+
+
+
 //unity
 
 using System.Collections;
